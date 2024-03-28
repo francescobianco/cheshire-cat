@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-
+import asyncio
 import uvicorn
 
 from fastapi import Depends, FastAPI
@@ -12,9 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from cat.log import log
 from cat.routes import base, settings, llm, embedder, memory, plugins, upload, websocket 
 from cat.routes.static import public, admin, static
-from cat.api_auth import check_api_key
+from cat.headers import check_api_key
 from cat.routes.openapi import get_openapi_configuration_function
-from cat.looking_glass.cheshire_cat import CheshireCat
+from cat.looking_glass.cheshire_cat import CheshireCat 
 
 
 @asynccontextmanager
@@ -27,6 +27,12 @@ async def lifespan(app: FastAPI):
     # - Not using Depends because it only supports callables (not instances)
     # - Starlette allows this: https://www.starlette.io/applications/#storing-state-on-the-app-instance
     app.state.ccat = CheshireCat()
+
+    # Dict of pseudo-sessions (key is the user_id)
+    app.state.strays = {}
+
+    # set a reference to asyncio event loop
+    app.state.event_loop = asyncio.get_running_loop()
 
     # startup message with admin, public and swagger addresses
     log.welcome()
@@ -41,7 +47,6 @@ def custom_generate_unique_id(route: APIRoute):
 # REST API
 cheshire_cat_api = FastAPI(
     lifespan=lifespan,
-    dependencies=[Depends(check_api_key)],
     generate_unique_id_function=custom_generate_unique_id
 )
 
@@ -57,19 +62,18 @@ cheshire_cat_api.add_middleware(
 )
 
 # Add routers to the middleware stack.
-cheshire_cat_api.include_router(base.router, tags=["Status"])
-cheshire_cat_api.include_router(settings.router, tags=["Settings"], prefix="/settings")
-cheshire_cat_api.include_router(llm.router, tags=["Large Language Model"], prefix="/llm")
-cheshire_cat_api.include_router(embedder.router, tags=["Embedder"], prefix="/embedder")
-cheshire_cat_api.include_router(plugins.router, tags=["Plugins"], prefix="/plugins")
-cheshire_cat_api.include_router(memory.router, tags=["Memory"], prefix="/memory")
-cheshire_cat_api.include_router(upload.router, tags=["Rabbit Hole"], prefix="/rabbithole")
-cheshire_cat_api.include_router(websocket.router, tags=["Websocket"])
+cheshire_cat_api.include_router(base.router, tags=["Status"], dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(settings.router, tags=["Settings"], prefix="/settings", dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(llm.router, tags=["Large Language Model"], prefix="/llm", dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(embedder.router, tags=["Embedder"], prefix="/embedder", dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(plugins.router, tags=["Plugins"], prefix="/plugins", dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(memory.router, tags=["Memory"], prefix="/memory", dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(upload.router, tags=["Rabbit Hole"], prefix="/rabbithole", dependencies=[Depends(check_api_key)])
+cheshire_cat_api.include_router(websocket.router, tags=["WebSocket"])
 
 # mount static files
 # this cannot be done via fastapi.APIrouter:
 # https://github.com/tiangolo/fastapi/discussions/9070
-
 # admin single page app
 admin.mount_admin_spa(cheshire_cat_api)
 # admin (static build)
@@ -104,9 +108,12 @@ if __name__ == "__main__":
             "reload_excludes": ["*test_*.*", "*mock_*.*"]
         }
 
+    log_level = os.getenv("LOG_LEVEL", "info")
     uvicorn.run(
         "cat.main:cheshire_cat_api",
         host="0.0.0.0",
         port=80,
+        use_colors=True,
+        log_level=log_level.lower(),
         **debug_config
     )

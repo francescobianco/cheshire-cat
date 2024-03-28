@@ -8,6 +8,8 @@ from cat.mad_hatter.registry import registry_search_plugins, registry_download_p
 from urllib.parse import urlparse
 import requests
 
+from pydantic import ValidationError
+
 router = APIRouter()
 
 
@@ -40,6 +42,7 @@ async def get_available_plugins(
         # get manifest
         manifest = deepcopy(p.manifest) # we make a copy to avoid modifying the plugin obj
         manifest["active"] = p.id in active_plugins # pass along if plugin is active or not
+        manifest["upgrade"] = None
         manifest["hooks"] = [{ "name": hook.name, "priority": hook.priority } for hook in p.hooks]
         manifest["tools"] = [{ "name": tool.name } for tool in p.tools]
         
@@ -47,6 +50,10 @@ async def get_available_plugins(
         plugin_text = [str(field) for field in manifest.values()]
         plugin_text = " ".join(plugin_text).lower()
         if (query is None) or (query.lower() in plugin_text):
+            for r in registry_plugins:
+                if r["plugin_url"] == p.manifest["plugin_url"]:
+                    if r["version"] != p.manifest["version"]:
+                        manifest["upgrade"] = r["version"]
             installed_plugins.append(manifest)
 
         # do not show already installed plugins among registry plugins
@@ -63,11 +70,10 @@ async def get_available_plugins(
     }
 
 
-@router.post("/upload/")
+@router.post("/upload")
 async def install_plugin(
-        request: Request,
-        file: UploadFile,
-        background_tasks: BackgroundTasks
+    request: Request,
+    file: UploadFile,
 ) -> Dict:
     """Install a new plugin from a zip file"""
 
@@ -88,10 +94,7 @@ async def install_plugin(
     plugin_archive_path = f"/tmp/{file.filename}"
     with open(plugin_archive_path, "wb+") as f:
         f.write(file.file.read())
-
-    background_tasks.add_task(
-        ccat.mad_hatter.install_plugin, plugin_archive_path
-    )
+    ccat.mad_hatter.install_plugin(plugin_archive_path)
 
     return {
         "filename": file.filename,
@@ -103,9 +106,8 @@ async def install_plugin(
 @router.post("/upload/registry")
 async def install_plugin_from_registry(
     request: Request,
-    background_tasks: BackgroundTasks,
-    payload: Dict = Body(example={"url": "https://github.com/plugin-dev-account/plugin-repo"})
-    ) -> Dict:
+    payload: Dict = Body(examples={"url": "https://github.com/plugin-dev-account/plugin-repo"})
+) -> Dict:
     """Install a new plugin from registry"""
 
     # access cat instance
@@ -114,17 +116,14 @@ async def install_plugin_from_registry(
     # download zip from registry
     try:
         tmp_plugin_path = registry_download_plugin( payload["url"] )
+        ccat.mad_hatter.install_plugin(tmp_plugin_path)
     except Exception as e:
         log.error("Could not download plugin form registry")
         log.error(e)
         raise HTTPException(
             status_code = 500,
             detail = { "error": str(e)}
-        ) 
-
-    background_tasks.add_task(
-        ccat.mad_hatter.install_plugin, tmp_plugin_path
-    )
+        )
 
     return {
         "url": payload["url"],
@@ -156,7 +155,107 @@ async def toggle_plugin(plugin_id: str, request: Request) -> Dict:
         raise HTTPException(
             status_code = 500,
             detail = { "error": str(e)}
-        ) 
+        )
+    
+
+@router.get("/settings")
+async def get_plugins_settings(request: Request) -> Dict:
+    """Returns the settings of all the plugins"""
+
+    # access cat instance
+    ccat = request.app.state.ccat
+
+    settings = []
+
+    # plugins are managed by the MadHatter class
+    for plugin in ccat.mad_hatter.plugins.values():
+        try:
+            plugin_settings = plugin.load_settings()
+            plugin_schema = plugin.settings_schema()
+            if plugin_schema['properties'] == {}:
+                plugin_schema = {}
+            settings.append({
+                "name": plugin.id,
+                "value": plugin_settings,
+                "schema": plugin_schema
+            })
+        except Exception as e:
+            log.error(f"Error loading {plugin} settings. The result will not contain the settings for this plugin. Error details: {e}")
+    
+    return {
+        "settings": settings,
+    }
+
+
+@router.get("/settings/{plugin_id}")
+async def get_plugin_settings(request: Request, plugin_id: str) -> Dict:
+    """Returns the settings of a specific plugin"""
+
+    # access cat instance
+    ccat = request.app.state.ccat
+
+    if not ccat.mad_hatter.plugin_exists(plugin_id):
+        raise HTTPException(
+            status_code = 404,
+            detail = { "error": "Plugin not found" }
+        )
+
+    try:
+        settings = ccat.mad_hatter.plugins[plugin_id].load_settings()
+        schema = ccat.mad_hatter.plugins[plugin_id].settings_schema()
+    except Exception as e:
+        raise HTTPException(
+            status_code = 500,
+            detail = { "error": e }
+        )
+    
+    if schema['properties'] == {}:
+        schema = {}
+
+    return {
+        "name": plugin_id,
+        "value": settings,
+        "schema": schema
+    }
+
+
+@router.put("/settings/{plugin_id}")
+async def upsert_plugin_settings(
+    request: Request,
+    plugin_id: str,
+    payload: Dict = Body(examples={"setting_a": "some value", "setting_b": "another value"}),
+) -> Dict:
+    """Updates the settings of a specific plugin"""
+
+    # access cat instance
+    ccat = request.app.state.ccat
+
+    if not ccat.mad_hatter.plugin_exists(plugin_id):
+        raise HTTPException(
+            status_code = 404,
+            detail = { "error": "Plugin not found" }
+        )
+    
+    # Get the plugin object
+    plugin = ccat.mad_hatter.plugins[plugin_id]
+
+    try:
+        # Load the plugin settings Pydantic model
+        PluginSettingsModel = plugin.settings_model()
+        # Validate the settings
+        PluginSettingsModel.model_validate(payload)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code = 400,
+            detail = { "error": "\n".join(list( map((lambda x: x["msg"]), e.errors())))}
+        )
+
+    final_settings = plugin.save_settings(payload)
+
+    return {
+        "name": plugin_id,
+        "value": final_settings
+    }
 
 
 @router.get("/{plugin_id}")
@@ -205,81 +304,4 @@ async def delete_plugin(plugin_id: str, request: Request) -> Dict:
 
     return {
         "deleted": plugin_id
-    }
-
-
-@router.get("/settings/")
-async def get_plugins_settings(request: Request) -> Dict:
-    """Returns the settings of all the plugins"""
-
-    # access cat instance
-    ccat = request.app.state.ccat
-
-    settings = []
-
-    # plugins are managed by the MadHatter class
-    for plugin in ccat.mad_hatter.plugins.values():
-        plugin_settings = plugin.load_settings()
-        plugin_schema = plugin.settings_schema()
-        if plugin_schema['properties'] == {}:
-            plugin_schema = {}
-        settings.append({
-            "name": plugin.id,
-            "value": plugin_settings,
-            "schema": plugin_schema
-        })
-
-    return {
-        "settings": settings,
-    }
-
-
-@router.get("/settings/{plugin_id}")
-async def get_plugin_settings(request: Request, plugin_id: str) -> Dict:
-    """Returns the settings of a specific plugin"""
-
-    # access cat instance
-    ccat = request.app.state.ccat
-
-    if not ccat.mad_hatter.plugin_exists(plugin_id):
-        raise HTTPException(
-            status_code = 404,
-            detail = { "error": "Plugin not found" }
-        )
-
-    # plugins are managed by the MadHatter class
-    settings = ccat.mad_hatter.plugins[plugin_id].load_settings()
-    schema = ccat.mad_hatter.plugins[plugin_id].settings_schema()
-    if schema['properties'] == {}:
-        schema = {}
-
-    return {
-        "name": plugin_id,
-        "value": settings,
-        "schema": schema
-    }
-
-
-@router.put("/settings/{plugin_id}")
-async def upsert_plugin_settings(
-    request: Request,
-    plugin_id: str,
-    payload: Dict = Body(example={"setting_a": "some value", "setting_b": "another value"}),
-) -> Dict:
-    """Updates the settings of a specific plugin"""
-
-    # access cat instance
-    ccat = request.app.state.ccat
-
-    if not ccat.mad_hatter.plugin_exists(plugin_id):
-        raise HTTPException(
-            status_code = 404,
-            detail = { "error": "Plugin not found" }
-        )
-    
-    final_settings = ccat.mad_hatter.plugins[plugin_id].save_settings(payload)
-
-    return {
-        "name": plugin_id,
-        "value": final_settings
     }

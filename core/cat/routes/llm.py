@@ -2,9 +2,10 @@ from typing import Dict
 
 from fastapi import Request, APIRouter, Body, HTTPException
 
-from cat.factory.llm import LLM_SCHEMAS
+from cat.factory.llm import get_llms_schemas
 from cat.db import crud, models
 from cat.log import log
+from cat import utils
 
 router = APIRouter()
 
@@ -19,9 +20,10 @@ LLM_SELECTED_NAME = "llm_selected"
 
 
 # get configured LLMs and configuration schemas
-@router.get("/settings/")
+@router.get("/settings")
 def get_llms_settings() -> Dict:
     """Get the list of the Large Language Models"""
+    LLM_SCHEMAS = get_llms_schemas()
 
     # get selected LLM, if any
     selected = crud.get_setting_by_name(name=LLM_SELECTED_NAME)
@@ -55,6 +57,7 @@ def get_llms_settings() -> Dict:
 @router.get("/settings/{languageModelName}")
 def get_llm_settings(request: Request, languageModelName: str) -> Dict:
     """Get settings and schema of the specified Large Language Model"""
+    LLM_SCHEMAS = get_llms_schemas()
 
     # check that languageModelName is a valid name
     allowed_configurations = list(LLM_SCHEMAS.keys())
@@ -79,15 +82,16 @@ def get_llm_settings(request: Request, languageModelName: str) -> Dict:
         "value": setting,
         "schema": schema
     }
-
+    
 
 @router.put("/settings/{languageModelName}")
 def upsert_llm_setting(
     request: Request,
     languageModelName: str,
-    payload: Dict = Body(example={"openai_api_key": "your-key-here"}),
+    payload: Dict = Body(examples={"openai_api_key": "your-key-here"}),
 ) -> Dict:
     """Upsert the Large Language Model setting"""
+    LLM_SCHEMAS = get_llms_schemas()
 
     # check that languageModelName is a valid name
     allowed_configurations = list(LLM_SCHEMAS.keys())
@@ -119,9 +123,20 @@ def upsert_llm_setting(
     # crete new collections
     # (in case embedder is not configured, it will be changed automatically and aligned to vendor)
     # TODO: should we take this feature away?
-    ccat.load_memory()
+    # Exception handling in case an incorrect key is loaded.
+    try:
+        ccat.load_memory()
+    except Exception as e:
+        log.error(e)
+        crud.delete_settings_by_category(category=LLM_SELECTED_CATEGORY)
+        crud.delete_settings_by_category(category=LLM_CATEGORY)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": utils.explicit_error_message(e)
+            }
+        )
     # recreate tools embeddings
     ccat.mad_hatter.find_plugins()
-    ccat.mad_hatter.embed_tools()
 
     return status

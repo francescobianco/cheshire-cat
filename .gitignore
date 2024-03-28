@@ -5,6 +5,7 @@ __pycache__
 
 # python local dev
 venv
+.venv
 
 .DS_Store
 .idea
@@ -12,7 +13,7 @@ venv
 
 # DBs
 long_term_memory
-/core/local_vector_memory
+local_vector_memory
 /core/dormouse/*
 *metadata.db
 *metadata-v*.db
@@ -23,6 +24,10 @@ test_db.db
 # old admin folder
 admin
 
+# data folder (settings and models)
+core/cat/data/*
+!core/cat/data/.gitkeep
+
 # plugins are not tracked by git
 core/cat/plugins/*
 # plugins readme can stay
@@ -30,4 +35,7 @@ core/cat/plugins/*
 
 # tests plugin folder
 plugin_folder
+
+# cache embedder
+core/local_cache/*
 

@@ -24,16 +24,35 @@ def settings_schema():
     3. json loaded from current folder or from another place
 
     Default behavior is defined in:
-       `cat.mad_hatter.plugin.Plugin::get_settings_schema`
-    
+       `cat.mad_hatter.plugin.Plugin::settings_schema`
+
     Returns
     -------
     schema : Dict
         JSON schema of the settings.
     """
 
-    # In core_plugin we pass an empty JSON schema    
+    # In core_plugin we pass an empty JSON schema
     return CorePluginSettings.model_json_schema()
+
+
+@plugin
+def settings_model():
+    """
+    This function tells the cat how plugin settings are defined, required vs optional, default values, etc.
+    The standard used is Pydantic BaseModel (see https://docs.pydantic.dev/latest/concepts/models/).
+
+    Default behavior is defined in:
+       `cat.mad_hatter.plugin.Plugin::settings_model`
+
+    Returns
+    -------
+    model : class
+        Pydantic model of the settings.
+    """
+
+    # In core_plugin we pass an empty model
+    return CorePluginSettings
 
 
 @plugin
@@ -78,3 +97,27 @@ def save_settings(settings):
 
     # In core_plugin we do nothing (for now).
     return {}
+
+
+@plugin
+def activated(plugin):
+    """This method allows executing custom code right after a plugin is activated.
+
+    Parameters
+    ----------
+    plugin
+        Plugin: Cat object representing the plugin instance in memory.
+    """
+    return None
+
+
+@plugin
+def deactivated(plugin):
+    """This method allows executing custom code right after a plugin is deactivated.
+
+    Parameters
+    ----------
+    plugin
+        Plugin: Cat object representing the plugin instance in memory.
+    """
+    return None

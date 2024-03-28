@@ -1,3 +1,4 @@
+
 class WorkingMemory(dict):
     """Cat's volatile memory.
 
@@ -16,14 +17,10 @@ class WorkingMemory(dict):
 
     def __init__(self):
         # The constructor instantiates a `dict` with a 'history' key to store conversation history
-        super().__init__(history=[])
+        # and the asyncio queue to manage the session notifications
+        super().__init__(history=[])        
 
-    def get_user_id(self):
-        """Get current user id."""
-        
-        return self["user_message_json"]["user_id"]
-
-    def update_conversation_history(self, who, message):
+    def update_conversation_history(self, who, message, why={}):
         """Update the conversation history.
 
         The methods append to the history key the last three conversation turns.
@@ -37,32 +34,10 @@ class WorkingMemory(dict):
         
         """
         # append latest message in conversation
-        self["history"].append({"who": who, "message": message})
+        self["history"].append({"who": who, "message": message, "why": why})
 
         # do not allow more than k messages in convo history (+2 which are the current turn)
-        k = 3
+        # TODO: allow infinite history, but only insert in prompts the last k messages
+        k = 5
         self["history"] = self["history"][(-k - 1):]
 
-
-class WorkingMemoryList(dict):
-    """Cat's volatile memory (for all users).
-
-    Handy class that behaves like a `dict` to store temporary custom user data.
-
-    Returns
-    -------
-    dict[str, list]
-        Default instance is a dictionary with `user` key set to a WorkingMemory instance.
-
-    Notes
-    -----
-    The constructor instantiates a dictionary with a `user` key set to a WorkingMemory instance that is further used to
-    reference the anonymous WorkingMemory.
-    """
-
-    def __init__(self):
-        super().__init__(user=WorkingMemory())
-
-    def get_working_memory(self, user_id='user'):
-        self[user_id] = self.get(user_id, WorkingMemory())
-        return self[user_id]
