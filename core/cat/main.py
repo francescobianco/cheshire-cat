@@ -2,9 +2,8 @@ import os
 from contextlib import asynccontextmanager
 import asyncio
 import uvicorn
-import threading
-import schedule
-import time
+
+import pprint
 
 from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
@@ -17,7 +16,8 @@ from cat.routes import base, settings, llm, embedder, memory, plugins, upload, w
 from cat.routes.static import public, admin, static
 from cat.headers import check_api_key
 from cat.routes.openapi import get_openapi_configuration_function
-from cat.looking_glass.cheshire_cat import CheshireCat 
+from cat.looking_glass.cheshire_cat import CheshireCat
+from cat.looking_glass.scheduler import Scheduler
 
 
 @asynccontextmanager
@@ -36,6 +36,9 @@ async def lifespan(app: FastAPI):
 
     # set a reference to asyncio event loop
     app.state.event_loop = asyncio.get_running_loop()
+
+    # init job scheduler
+    app.state.scheduler = Scheduler(app)
 
     # startup message with admin, public and swagger addresses
     log.welcome()
@@ -100,28 +103,8 @@ async def validation_exception_handler(request, exc):
 cheshire_cat_api.openapi = get_openapi_configuration_function(cheshire_cat_api)
 
 
-# Funzione per eseguire i tuoi job schedulati
-def run_scheduled_jobs():
-    # Definisci i tuoi job schedulati qui utilizzando il modulo 'schedule'
-    def job():
-        print("Eseguendo un job schedulato...")
-
-    # Esempio di un job schedulato che viene eseguito ogni 5 secondi
-    schedule.every(5).seconds.do(job)
-
-    # Ciclo per eseguire i job schedulati
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-
 # RUN!
 if __name__ == "__main__":
-
-    # Avvia il thread per eseguire i job schedulati
-    jobs_thread = threading.Thread(target=run_scheduled_jobs)
-    jobs_thread.start()
-
     # debugging utilities, to deactivate put `DEBUG=false` in .env
     debug_config = {}
     if os.getenv("DEBUG", "true") == "true":
