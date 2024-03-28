@@ -40,8 +40,10 @@ def mount_admin_spa(cheshire_cat_api):
         # TODO: this is ugly, should be done with beautiful soup or a template
         regex = re.compile(
             r"catCoreConfig = (\{.*?\})", flags=re.MULTILINE | re.DOTALL)
-        default_config = re.search(regex, html).group(1)
-        html = html.replace(default_config, cat_core_config)
+
+        default_config = re.search(regex, html)
+        if default_config:
+            html = html.replace(default_config.group(1), cat_core_config)
 
         return HTMLResponse(html)
 

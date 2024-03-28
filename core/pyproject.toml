@@ -37,8 +37,7 @@ dependencies = [
     "perflint",
     "pylint-actions",
     "pytest",
-    "httpx",
-    "schedule"
+    "httpx"
 ]
 
 [tool.coverage.run]
