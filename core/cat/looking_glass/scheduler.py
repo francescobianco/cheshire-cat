@@ -1,6 +1,7 @@
 import threading
 import schedule
 import time
+import pprint
 
 
 class Scheduler:
@@ -26,7 +27,7 @@ class Scheduler:
     # Definisci i tuoi job schedulati qui utilizzando il modulo 'schedule'
     def job(self):
         print('B---------')
-        #pprint.pprint(self.app)
+        pprint.pprint(dir(self.app.state.strays))
         print('----------')
 
         print("....")
