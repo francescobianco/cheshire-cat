@@ -9,3 +9,4 @@ start:
 
 debug: build start
 	@docker-compose logs -f cheshire-cat-core
+

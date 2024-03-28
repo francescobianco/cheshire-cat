@@ -2,6 +2,9 @@ import os
 from contextlib import asynccontextmanager
 import asyncio
 import uvicorn
+import threading
+import schedule
+import time
 
 from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
@@ -96,8 +99,28 @@ async def validation_exception_handler(request, exc):
 # openapi customization
 cheshire_cat_api.openapi = get_openapi_configuration_function(cheshire_cat_api)
 
+
+# Funzione per eseguire i tuoi job schedulati
+def run_scheduled_jobs():
+    # Definisci i tuoi job schedulati qui utilizzando il modulo 'schedule'
+    def job():
+        print("Eseguendo un job schedulato...")
+
+    # Esempio di un job schedulato che viene eseguito ogni 5 secondi
+    schedule.every(5).seconds.do(job)
+
+    # Ciclo per eseguire i job schedulati
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+
 # RUN!
 if __name__ == "__main__":
+
+    # Avvia il thread per eseguire i job schedulati
+    jobs_thread = threading.Thread(target=run_scheduled_jobs)
+    jobs_thread.start()
 
     # debugging utilities, to deactivate put `DEBUG=false` in .env
     debug_config = {}
