@@ -1,9 +1,4 @@
 import os
-import threading
-import asyncio
-import schedule
-import time
-
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -97,22 +92,9 @@ async def validation_exception_handler(request, exc):
 # openapi customization
 cheshire_cat_api.openapi = get_openapi_configuration_function(cheshire_cat_api)
 
+# RUN!
+if __name__ == "__main__":
 
-async def run_job_scheduler():
-    # Definisci i tuoi job schedulati qui utilizzando il modulo 'schedule'
-    def job():
-        print("Eseguendo un job schedulato...")
-
-    # Esempio di un job schedulato che viene eseguito ogni 5 secondi
-    schedule.every(5).seconds.do(job)
-
-    # Ciclo per eseguire i job schedulati
-    while True:
-        await asyncio.sleep(1)
-        schedule.run_pending()
-
-
-async def run_uvicorn_server():
     # debugging utilities, to deactivate put `DEBUG=false` in .env
     debug_config = {}
     if os.getenv("DEBUG", "true") == "true":
@@ -122,24 +104,9 @@ async def run_uvicorn_server():
             "reload_excludes": ["*test_*.*", "*mock_*.*"]
         }
 
-    await uvicorn.run(
+    uvicorn.run(
         "cat.main:cheshire_cat_api",
         host="0.0.0.0",
         port=80,
         **debug_config
     )
-
-
-# RUN!
-if __name__ == "__main__":
-    async def main():
-        # Avvia il server Uvicorn in un task separato
-        uv_server_task = asyncio.create_task(run_uvicorn_server())
-
-        # Esegui i job schedulati nel thread principale
-        await run_scheduled_jobs()
-
-
-    # Esegui il loop eventi principale
-    asyncio.run(main())
-
